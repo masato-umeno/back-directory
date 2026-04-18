@@ -98,6 +98,29 @@ export BD_CORE_BIN=/path/to/bd-core
 
 Checksums (planned): future releases will publish SHA256 sums for verification.
 
+#### Development with Nix flakes
+
+For a reproducible local toolchain, this repository also exposes a flake:
+
+```sh
+nix develop
+cargo test
+```
+
+If you use `direnv`, the repository also includes a root `.envrc`:
+
+```sh
+direnv allow
+cargo test
+```
+
+Useful one-off commands:
+
+```sh
+nix build .#bd-core
+nix run .#bd-core -- --help
+```
+
 ## Data and privacy
 
 `bd` stores local state in SQLite to support session-scoped backtracking and undo:

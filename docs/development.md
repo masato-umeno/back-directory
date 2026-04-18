@@ -17,6 +17,36 @@ directory changes.
 
 ## Local setup
 
+### Install (nix flakes)
+
+From a local clone:
+
+```sh
+nix develop
+```
+
+This drops you into a shell with the Rust toolchain, shell runtimes, and SQLite available.
+From there you can use the normal cargo workflow:
+
+```sh
+cargo test
+cargo build --release
+```
+
+If you already use `direnv`, allow the checked-in `.envrc` once and the flake shell will
+load automatically when you enter the repository:
+
+```sh
+direnv allow
+```
+
+For one-off commands without entering a shell:
+
+```sh
+nix build .#bd-core
+nix run .#bd-core -- --help
+```
+
 ### Install (cargo)
 
 ```sh
