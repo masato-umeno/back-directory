@@ -15,9 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-latest
+          - runner: macos-14
             target: aarch64-apple-darwin
-          - runner: macos-latest
+          - runner: macos-13
             target: x86_64-apple-darwin
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
@@ -28,18 +28,67 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --target "${{ matrix.target }}"
 
       - name: Package
         run: |
           set -eu
           archive="bd-core-${{ matrix.target }}.tar.gz"
-          tar -czf "$archive" -C target/release bd-core
+          tar -czf "$archive" -C "target/${{ matrix.target }}/release" bd-core
 
       - name: Upload to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: bd-core-${{ matrix.target }}.tar.gz
+
+  update-homebrew-tap:
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute release metadata
+        id: meta
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          sha256="$(curl -fsSL "$url" | sha256sum | awk '{print $1}')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Render formula
+        run: |
+          set -eu
+          scripts/render-homebrew-formula.sh \
+            "${{ steps.meta.outputs.version }}" \
+            "${{ steps.meta.outputs.source_sha256 }}" > Formula/back-directory.rb
+
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: 01-mu/homebrew-back-directory
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-back-directory
+
+      - name: Update tap formula
+        run: |
+          set -eu
+          cp Formula/back-directory.rb homebrew-back-directory/Formula/back-directory.rb
+
+      - name: Commit tap formula
+        run: |
+          set -eu
+          cd homebrew-back-directory
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/back-directory.rb
+          git commit -m "chore: update formula for v${{ steps.meta.outputs.version }}" || exit 0
+          git push origin HEAD:main

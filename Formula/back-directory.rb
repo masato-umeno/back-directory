@@ -6,6 +6,11 @@ class BackDirectory < Formula
   license "MIT"
   head "https://github.com/01-mu/back-directory.git", branch: "main"
 
+  # Bottle checksums are filled in by the tap bottling workflow after release.
+  bottle do
+    root_url "https://github.com/01-mu/homebrew-back-directory/releases/download/back-directory-0.1.2"
+  end
+
   depends_on "rust" => :build
 
   def install

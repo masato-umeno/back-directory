@@ -39,6 +39,10 @@ brew tap 01-mu/back-directory
 brew install back-directory
 ```
 
+Supported platforms should be served through Homebrew bottles so users do not need a local
+Rust toolchain or manual build setup. If no bottle is available for a platform yet,
+Homebrew may fall back to source build requirements for that platform.
+
 `bd` is a shell wrapper, so after installing with Homebrew you still need to source the
 matching wrapper from the keg:
 
