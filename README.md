@@ -31,12 +31,12 @@ Warning: `bd vacuum` deletes all history. Use with care.
 
 #### Homebrew
 
-This repository includes a Homebrew formula at `Formula/back-directory.rb`.
-
-For local testing:
+This repository includes a Homebrew formula at `Formula/back-directory.rb`. Publish that
+formula from your tap and install it with `brew tap`:
 
 ```sh
-brew install --build-from-source ./Formula/back-directory.rb
+brew tap 01-mu/back-directory
+brew install back-directory
 ```
 
 `bd` is a shell wrapper, so after installing with Homebrew you still need to source the
@@ -50,8 +50,7 @@ source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.bash"
 source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.zsh"
 ```
 
-Start a new shell or reload your shell rc after adding the `source` line. If you publish a
-tap, copy `Formula/back-directory.rb` there and install from that tap.
+Start a new shell or reload your shell rc after adding the `source` line.
 
 #### Recommended: install.sh
 
