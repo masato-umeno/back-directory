@@ -29,6 +29,30 @@ Warning: `bd vacuum` deletes all history. Use with care.
 
 ## Install
 
+#### Homebrew
+
+This repository includes a Homebrew formula at `Formula/back-directory.rb`.
+
+For local testing:
+
+```sh
+brew install --build-from-source ./Formula/back-directory.rb
+```
+
+`bd` is a shell wrapper, so after installing with Homebrew you still need to source the
+matching wrapper from the keg:
+
+```sh
+# bash
+source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.bash"
+
+# zsh
+source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.zsh"
+```
+
+Start a new shell or reload your shell rc after adding the `source` line. If you publish a
+tap, copy `Formula/back-directory.rb` there and install from that tap.
+
 #### Recommended: install.sh
 
 1) Run the installer directly from GitHub:
