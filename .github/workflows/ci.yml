@@ -69,8 +69,11 @@ jobs:
         shell: powershell
         run: .\scripts\e2e-smoke.ps1
 
-      - name: PowerShell wrapper smoke test (PowerShell 7)
+      # Each run needs its own process: bd.ps1 initializes only once per session.
+      - name: PowerShell wrapper smoke test (PowerShell 7, LocationChangedAction hook)
         shell: pwsh
-        run: |
-          ./scripts/e2e-smoke.ps1
-          ./scripts/e2e-smoke.ps1 -Hook prompt
+        run: pwsh -NoProfile -File scripts/e2e-smoke.ps1
+
+      - name: PowerShell wrapper smoke test (PowerShell 7, prompt hook)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/e2e-smoke.ps1 -Hook prompt
