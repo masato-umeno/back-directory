@@ -30,7 +30,7 @@
 
             meta = with pkgs.lib; {
               description = "Rust core for back-directory";
-              homepage = "https://github.com/01-mu/back-directory";
+              homepage = "https://github.com/masato-umeno/back-directory";
               license = licenses.mit;
               mainProgram = "bd-core";
               platforms = platforms.unix;
@@ -48,6 +48,36 @@
         };
       });
 
+      checks = forEachSystem (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          package = self.packages.${system}.default;
+        in
+        {
+          inherit package;
+          distribution = pkgs.runCommand "back-directory-distribution-check" {
+            nativeBuildInputs = with pkgs; [
+              actionlint
+              bash
+              ruby
+              shellcheck
+              zsh
+            ];
+          } ''
+            cp -R ${self} repo
+            chmod -R u+w repo
+            cd repo
+            export BD_CORE_BIN=${package}/bin/bd-core
+            shellcheck -e SC2016 scripts/*.sh scripts/*.bash examples/bd-demo/demo.sh examples/bd-demo/pv
+            actionlint .github/workflows/*.yml
+            sh scripts/e2e-smoke.sh
+            sh scripts/test-homebrew-formula.sh
+            sh scripts/test-package-lifecycle.sh
+            sh scripts/demo-media.sh check
+            touch "$out"
+          '';
+        });
+
       devShells = forEachSystem (system:
         let
           pkgs = import nixpkgs { inherit system; };
@@ -62,6 +92,11 @@
               bash
               zsh
               sqlite
+              shellcheck
+              actionlint
+              ruby
+              asciinema
+              asciinema-agg
             ];
           };
         });

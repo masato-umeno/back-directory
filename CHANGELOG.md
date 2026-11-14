@@ -7,7 +7,12 @@ Semantic Versioning.
 
 ## [Unreleased]
 
-- Add notes for upcoming releases here.
+- Add a Homebrew formula that installs prebuilt release binaries; it does not edit shell
+  rc files.
+- Add a Nix flake with a pinned development shell and `nix flake check`.
+- Reject unexpected arguments to `bd optimize` and `bd vacuum` in the wrappers.
+- Fix the wrappers leaving the next directory change unrecorded after a failed `cd`.
+- Run one shared check script (`scripts/check.sh`) locally and in CI.
 
 ## [0.1.2] - 2026-01-03
 
@@ -19,6 +24,6 @@ Semantic Versioning.
 
 - Fix bash wrapper always showing help due to a malformed test.
 
-## [0.1.0] - 2024-01-02
+## [0.1.0] - 2026-01-02
 
 - Initial public release.

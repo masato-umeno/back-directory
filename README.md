@@ -31,17 +31,24 @@ Warning: `bd vacuum` deletes all history. Use with care.
 
 #### Homebrew
 
-This repository includes a Homebrew formula at `Formula/back-directory.rb`. Publish that
-formula from your tap and install it with `brew tap`:
+This repository includes the source formula template at `Formula/back-directory.rb`.
+Releases are expected to update the public tap `masato-umeno/homebrew-back-directory` through
+GitHub Actions, not by local interactive GitHub operations.
+
+For users, the install flow stays:
 
 ```sh
-brew tap 01-mu/back-directory
+brew tap masato-umeno/back-directory
 brew install back-directory
 ```
 
-Supported platforms should be served through Homebrew bottles so users do not need a local
-Rust toolchain or manual build setup. If no bottle is available for a platform yet,
-Homebrew may fall back to source build requirements for that platform.
+The formula uses release binaries for Apple Silicon macOS, Intel macOS, and x86_64 Linux,
+so installing does not build Rust or require a Rust toolchain. Other platforms currently
+fail with an explicit unsupported-platform message; a source-build fallback is not yet
+provided. A Homebrew bottle may be used when the tap publishes one, but is not required.
+
+For maintainers, the release workflow needs a `HOMEBREW_TAP_TOKEN` secret with permission
+to push to `masato-umeno/homebrew-back-directory`.
 
 `bd` is a shell wrapper, so after installing with Homebrew you still need to source the
 matching wrapper from the keg:
@@ -54,20 +61,22 @@ source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.bash"
 source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.zsh"
 ```
 
-Start a new shell or reload your shell rc after adding the `source` line.
+Start a new shell or reload your shell rc after adding the `source` line. Homebrew does
+not edit shell rc files on install, so `brew uninstall back-directory` removes everything
+Homebrew added.
 
 #### Recommended: install.sh
 
 1) Run the installer directly from GitHub:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/install.sh | sh
 ```
 
 If you prefer to inspect the script first:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/install.sh -o install.sh
 sh ./install.sh
 ```
 
@@ -109,9 +118,9 @@ mv bd-core ~/.local/bin/bd-core
 
 ```sh
 mkdir -p ~/.config/back-directory
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/bd.bash \
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/bd.bash \
   -o ~/.config/back-directory/bd.bash
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/bd.zsh \
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/bd.zsh \
   -o ~/.config/back-directory/bd.zsh
 ```
 
@@ -159,6 +168,20 @@ nix run .#bd-core -- --help
 
 ## Uninstall
 
+For a Homebrew install:
+
+```sh
+brew uninstall back-directory
+brew untap masato-umeno/back-directory # optional
+```
+
+This removes Homebrew-owned binaries and wrappers. It intentionally leaves your shell rc
+line and local history because those are user-owned data. Remove the `source .../bd.*`
+line yourself. To erase history too, remove only
+`${XDG_STATE_HOME:-$HOME/.local/state}/back-directory` after checking the expanded path.
+
+For an `install.sh` or manual install, use the following cleanup.
+
 Uninstall is a manual cleanup of files and shell config changes.
 
 1) Locate the installed core binary (the path will be used below):
@@ -183,7 +206,8 @@ sudo rm -f /usr/local/bin/bd-core
 rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3"
 rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3-wal"
 rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3-shm"
-rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/back-directory"
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/back-directory/bd.bash"
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/back-directory/bd.zsh"
 ```
 
 4) Revert shell setup changes:

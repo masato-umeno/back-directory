@@ -17,7 +17,7 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
-          - runner: macos-13
+          - runner: macos-14
             target: x86_64-apple-darwin
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
@@ -39,6 +39,14 @@ jobs:
           set -eu
           archive="bd-core-${{ matrix.target }}.tar.gz"
           tar -czf "$archive" -C "target/${{ matrix.target }}/release" bd-core
+          test "$(tar -tzf "$archive")" = "bd-core"
+
+      - name: Preserve artifact for validation and formula rendering
+        uses: actions/upload-artifact@v4
+        with:
+          name: bd-core-${{ matrix.target }}
+          path: bd-core-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
 
       - name: Upload to release
         if: github.event_name == 'release'
@@ -51,6 +59,16 @@ jobs:
     needs: build
     runs-on: ubuntu-22.04
     steps:
+      - name: Guard required secret
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "HOMEBREW_TAP_TOKEN is required to update masato-umeno/homebrew-back-directory" >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -64,17 +82,32 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "source_sha256=$sha256" >> "$GITHUB_OUTPUT"
 
+      - name: Download built release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bd-core-*
+          path: release-artifacts
+          merge-multiple: true
+
       - name: Render formula
         run: |
           set -eu
+          cd release-artifacts
+          darwin_arm64_sha256="$(sha256sum bd-core-aarch64-apple-darwin.tar.gz | awk '{print $1}')"
+          darwin_x86_64_sha256="$(sha256sum bd-core-x86_64-apple-darwin.tar.gz | awk '{print $1}')"
+          linux_x86_64_sha256="$(sha256sum bd-core-x86_64-unknown-linux-gnu.tar.gz | awk '{print $1}')"
+          cd ..
           scripts/render-homebrew-formula.sh \
             "${{ steps.meta.outputs.version }}" \
-            "${{ steps.meta.outputs.source_sha256 }}" > Formula/back-directory.rb
+            "${{ steps.meta.outputs.source_sha256 }}" \
+            "$darwin_arm64_sha256" \
+            "$darwin_x86_64_sha256" \
+            "$linux_x86_64_sha256" > Formula/back-directory.rb
 
       - name: Checkout tap repository
         uses: actions/checkout@v4
         with:
-          repository: 01-mu/homebrew-back-directory
+          repository: masato-umeno/homebrew-back-directory
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-back-directory
 

@@ -25,12 +25,11 @@ From a local clone:
 nix develop
 ```
 
-This drops you into a shell with the Rust toolchain, shell runtimes, and SQLite available.
-From there you can use the normal cargo workflow:
+This drops you into a shell with the Rust toolchain, shell runtimes, SQLite, shellcheck,
+actionlint, asciinema, and agg available. Run the same full check used by CI:
 
 ```sh
-cargo test
-cargo build --release
+scripts/check.sh
 ```
 
 If you already use `direnv`, allow the checked-in `.envrc` once and the flake shell will
@@ -54,7 +53,7 @@ nix run .#bd-core -- --help
 cargo install --path .
 
 # or from git
-# cargo install --git https://github.com/01-mu/back-directory
+# cargo install --git https://github.com/masato-umeno/back-directory
 ```
 
 Ensure `bd-core` is on your `PATH` (default is `~/.cargo/bin`).
@@ -91,11 +90,15 @@ source /path/to/your/clone/scripts/bd.bash
 CI runs on pull requests and pushes to `main`. The recommended local check is:
 
 ```sh
-cargo fmt --check && cargo clippy -- -D warnings && cargo test && cargo build --release
+nix develop --command scripts/check.sh
 ```
 
-To keep `main` healthy, enable branch protection and require the `ci / build-test` job
-to pass before merging.
+`nix flake check` builds and tests the Rust package and runs the distribution, workflow,
+wrapper, isolated package lifecycle, and committed demo-media checks. The lifecycle tests
+use temporary `HOME` and `XDG_STATE_HOME` directories and never source real shell rc files.
+
+To keep `main` healthy, enable branch protection and require both `build-test` jobs
+(`macos-latest` and `ubuntu-latest`) to pass before merging.
 
 ## SQLite schema
 

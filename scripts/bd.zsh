@@ -129,12 +129,24 @@ EOF
   fi
 
   if [[ $arg == "optimize" ]]; then
+    if (( $# != 1 )); then
+      print -r -- "bd: usage: bd optimize"
+      return 1
+    fi
     _bd_require_core || return 1
     "$BD_CORE_BIN" optimize || return $?
     return 0
   fi
 
   if [[ $arg == "vacuum" ]]; then
+    if (( $# > 2 )); then
+      print -r -- "bd: usage: bd vacuum [--yes|--y]"
+      return 1
+    fi
+    if (( $# == 2 )) && [[ ${2-} != "--yes" && ${2-} != "--y" ]]; then
+      print -r -- "bd: usage: bd vacuum [--yes|--y]"
+      return 1
+    fi
     _bd_require_core || return 1
     if (( $# >= 2 )) && [[ ${2-} == "--yes" || ${2-} == "--y" ]]; then
       "$BD_CORE_BIN" vacuum --yes || return $?
@@ -155,8 +167,11 @@ EOF
     local target
     target=$("$BD_CORE_BIN" cancel --session "$BD_SESSION_ID") || return $?
     BD_SUPPRESS_RECORD=1
-    builtin cd -- "$target"
-    return $?
+    if ! builtin cd -- "$target"; then
+      unset BD_SUPPRESS_RECORD
+      return 1
+    fi
+    return 0
   fi
 
   if [[ $arg == "ls" || $arg == "list" ]]; then
@@ -200,7 +215,10 @@ EOF
   local target
   target=$("$BD_CORE_BIN" back --print-path --session "$BD_SESSION_ID" --n "$arg") || return $?
   BD_SUPPRESS_RECORD=1
-  builtin cd -- "$target"
+  if ! builtin cd -- "$target"; then
+    unset BD_SUPPRESS_RECORD
+    return 1
+  fi
 }
 
 if (( ${chpwd_functions[(I)back_directory_chpwd]} == 0 )); then

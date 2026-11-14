@@ -27,21 +27,17 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Format
-        run: cargo fmt --check
-
-      - name: Clippy
-        run: cargo clippy -- -D warnings
-
-      - name: Test
-        run: cargo test
-
-      - name: Build (release)
-        run: cargo build --release
-
-      - name: Install zsh (Ubuntu)
+      - name: Install distribution check tools (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y zsh
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck zsh
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: E2E smoke (wrapper + core)
-        run: scripts/e2e-smoke.sh
+      - name: Install distribution check tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install actionlint shellcheck
+
+      - name: Full CI check
+        run: scripts/check.sh
