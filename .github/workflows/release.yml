@@ -17,10 +17,20 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
+            archive: tar.gz
           - runner: macos-14
             target: x86_64-apple-darwin
+            archive: tar.gz
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          # Cross-compiled on the x64 runner, so this binary is built but not run here.
+          - runner: windows-2022
+            target: aarch64-pc-windows-msvc
+            archive: zip
 
     steps:
       - name: Checkout
@@ -35,24 +45,48 @@ jobs:
         run: cargo build --release --target "${{ matrix.target }}"
 
       - name: Package
+        if: runner.os != 'Windows'
         run: |
           set -eu
           archive="bd-core-${{ matrix.target }}.tar.gz"
           tar -czf "$archive" -C "target/${{ matrix.target }}/release" bd-core
           test "$(tar -tzf "$archive")" = "bd-core"
 
+      - name: Smoke test (Windows x64)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: ./scripts/e2e-smoke.ps1 -CoreBin "target/${{ matrix.target }}/release/bd-core.exe"
+
+      # The zip is the whole Windows package: Scoop, winget, and Chocolatey all
+      # install from it, so the files sit at the archive root.
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = New-Item -ItemType Directory -Path package
+          Copy-Item "target/${{ matrix.target }}/release/bd-core.exe", scripts/bd.ps1, LICENSE -Destination $stage
+          $archive = "bd-core-${{ matrix.target }}.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $archive
+          Expand-Archive -Path $archive -DestinationPath verify
+          $names = @(Get-ChildItem verify | ForEach-Object Name)
+          $expected = 'bd-core.exe', 'bd.ps1', 'LICENSE'
+          if ($names.Count -ne 3 -or @($expected | Where-Object { $names -cnotcontains $_ }).Count -ne 0) {
+            throw "unexpected archive contents: $($names -join ',')"
+          }
+
       - name: Preserve artifact for validation and formula rendering
         uses: actions/upload-artifact@v4
         with:
           name: bd-core-${{ matrix.target }}
-          path: bd-core-${{ matrix.target }}.tar.gz
+          path: bd-core-${{ matrix.target }}.${{ matrix.archive }}
           if-no-files-found: error
 
       - name: Upload to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: bd-core-${{ matrix.target }}.tar.gz
+          files: bd-core-${{ matrix.target }}.${{ matrix.archive }}
 
   update-homebrew-tap:
     if: github.event_name == 'release'
@@ -125,3 +159,128 @@ jobs:
           git add Formula/back-directory.rb
           git commit -m "chore: update formula for v${{ steps.meta.outputs.version }}" || exit 0
           git push origin HEAD:main
+
+  # Renders the Scoop, winget, and Chocolatey definitions from the built zips.
+  # Publishing needs accounts and secrets the maintainer sets up; a missing
+  # secret skips that channel with a warning instead of failing the release.
+  windows-packages:
+    needs: build
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute release metadata
+        id: meta
+        run: |
+          set -eu
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download built Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bd-core-*-pc-windows-msvc
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Render package definitions
+        run: |
+          set -eu
+          x86_64_sha256="$(sha256sum release-artifacts/bd-core-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
+          arm64_sha256="$(sha256sum release-artifacts/bd-core-aarch64-pc-windows-msvc.zip | awk '{print $1}')"
+          scripts/render-windows-packages.sh \
+            "${{ steps.meta.outputs.version }}" \
+            "$x86_64_sha256" \
+            "$arm64_sha256" \
+            windows-packages
+
+      # The winget manifests in this artifact are submitted to
+      # microsoft/winget-pkgs by hand; see docs/development.md.
+      - name: Preserve package definitions
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: windows-packages
+          if-no-files-found: error
+
+      - name: Check Scoop bucket token
+        id: scoop
+        if: github.event_name == 'release'
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          set -eu
+          if [ -n "${SCOOP_BUCKET_TOKEN}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::SCOOP_BUCKET_TOKEN is not set; skipping the Scoop bucket update"
+          fi
+
+      - name: Checkout Scoop bucket repository
+        if: steps.scoop.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: masato-umeno/scoop-back-directory
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-back-directory
+
+      - name: Update Scoop bucket
+        if: steps.scoop.outputs.available == 'true'
+        run: |
+          set -eu
+          mkdir -p scoop-back-directory/bucket
+          cp windows-packages/scoop/back-directory.json scoop-back-directory/bucket/back-directory.json
+          cd scoop-back-directory
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bucket/back-directory.json
+          git commit -m "chore: update manifest for v${{ steps.meta.outputs.version }}" || exit 0
+          git push origin HEAD:main
+
+  chocolatey:
+    needs: windows-packages
+    runs-on: windows-2022
+    steps:
+      - name: Download package definitions
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-packages
+          path: windows-packages
+
+      - name: Pack
+        shell: pwsh
+        working-directory: windows-packages/chocolatey
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco pack back-directory.nuspec
+          if ($LASTEXITCODE -ne 0) { throw "choco pack failed" }
+
+      - name: Preserve Chocolatey package
+        uses: actions/upload-artifact@v4
+        with:
+          name: chocolatey-package
+          path: windows-packages/chocolatey/*.nupkg
+          if-no-files-found: error
+
+      - name: Push to the Chocolatey community repository
+        if: github.event_name == 'release'
+        shell: pwsh
+        working-directory: windows-packages/chocolatey
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:CHOCOLATEY_API_KEY) {
+            Write-Output "::warning::CHOCOLATEY_API_KEY is not set; skipping the Chocolatey push"
+            exit 0
+          }
+          $package = (Get-ChildItem -Filter *.nupkg | Select-Object -First 1).FullName
+          choco push $package --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
+          if ($LASTEXITCODE -ne 0) { throw "choco push failed" }

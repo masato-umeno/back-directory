@@ -41,3 +41,36 @@ jobs:
 
       - name: Full CI check
         run: scripts/check.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --all-targets --all-features
+
+      - name: Build
+        run: cargo build --release
+
+      - name: PowerShell wrapper smoke test (Windows PowerShell 5.1)
+        shell: powershell
+        run: .\scripts\e2e-smoke.ps1
+
+      - name: PowerShell wrapper smoke test (PowerShell 7)
+        shell: pwsh
+        run: |
+          ./scripts/e2e-smoke.ps1
+          ./scripts/e2e-smoke.ps1 -Hook prompt

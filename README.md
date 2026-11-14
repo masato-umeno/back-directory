@@ -65,6 +65,40 @@ Start a new shell or reload your shell rc after adding the `source` line. Homebr
 not edit shell rc files on install, so `brew uninstall back-directory` removes everything
 Homebrew added.
 
+#### Windows (PowerShell)
+
+`bd` works in Windows PowerShell 5.1 and PowerShell 7+. Windows packages are published
+starting with the first release that ships Windows binaries (after v0.1.2), for x64 and
+ARM64. Install `bd-core` with one of:
+
+```powershell
+# Scoop
+scoop bucket add back-directory https://github.com/masato-umeno/scoop-back-directory
+scoop install back-directory
+
+# winget
+winget install masato-umeno.back-directory
+
+# Chocolatey (x64 build, from an elevated shell)
+choco install back-directory
+```
+
+`bd` is a PowerShell function, so after installing add this one line to your PowerShell
+profile yourself (open it with `notepad $PROFILE`; create the file if it does not exist):
+
+```powershell
+Invoke-Expression (& bd-core init powershell | Out-String)
+```
+
+Start a new PowerShell session after editing the profile. None of the packages edit your
+profile on install. If your profile also sets up a custom prompt (oh-my-posh, starship,
+...), put the `bd` line after it.
+
+Without a package manager, download `bd-core-x86_64-pc-windows-msvc.zip` (or
+`bd-core-aarch64-pc-windows-msvc.zip`) from the GitHub release, extract it to a directory
+on your `PATH`, and add the same profile line. The zip also contains `bd.ps1`, which you
+can dot-source instead: `. "C:\path\to\bd.ps1"`.
+
 #### Recommended: install.sh
 
 1) Run the installer directly from GitHub:
@@ -164,6 +198,7 @@ nix run .#bd-core -- --help
 - Data stored: directory paths, timestamps, session id, and undo/cancel bookkeeping (from/to ids).
 - Location: `${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3`
   (SQLite may also create `bd.sqlite3-wal` and `bd.sqlite3-shm`).
+  On Windows: `%LOCALAPPDATA%\back-directory\bd.sqlite3` unless `XDG_STATE_HOME` is set.
 - No external telemetry or network calls from the core binary.
 
 ## Uninstall
@@ -179,6 +214,26 @@ This removes Homebrew-owned binaries and wrappers. It intentionally leaves your 
 line and local history because those are user-owned data. Remove the `source .../bd.*`
 line yourself. To erase history too, remove only
 `${XDG_STATE_HOME:-$HOME/.local/state}/back-directory` after checking the expanded path.
+
+For a Windows package install, remove the `Invoke-Expression (& bd-core init powershell ...)`
+line from your PowerShell profile first (`notepad $PROFILE`), then uninstall with the
+package manager you used:
+
+```powershell
+scoop uninstall back-directory
+scoop bucket rm back-directory # optional
+
+winget uninstall masato-umeno.back-directory
+
+choco uninstall back-directory
+```
+
+The packages leave your profile and local history alone. To erase history too, remove
+the state directory after checking the path:
+
+```powershell
+Remove-Item -Recurse "$env:LOCALAPPDATA\back-directory"
+```
 
 For an `install.sh` or manual install, use the following cleanup.
 
@@ -231,7 +286,8 @@ backtracking reversible.
 
 ## Layout
 
-- scripts/: distribution scripts (install.sh, bd.bash, bd.zsh)
+- scripts/: distribution scripts (install.sh, bd.bash, bd.zsh, bd.ps1) and package
+  renderers (Homebrew formula, Scoop / winget / Chocolatey definitions)
 - src/: Rust implementation (bd-core)
 
 ## Docs

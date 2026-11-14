@@ -11,6 +11,7 @@ const CLEANUP_INTERVAL_SECS: i64 = 10 * 24 * 60 * 60; //  10 days
 const SESSION_RETENTION_SECS: i64 = 180 * 24 * 60 * 60; // 180 days
 const UNDO_RETENTION_SECS: i64 = 90 * 24 * 60 * 60; //  90 days
 const META_LAST_CLEANUP_KEY: &str = "last_cleanup_at";
+const POWERSHELL_WRAPPER: &str = include_str!("../scripts/bd.ps1");
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -52,6 +53,10 @@ enum Commands {
         json: bool,
     },
     Optimize,
+    /// Print the shell wrapper for the given shell (supported: powershell)
+    Init {
+        shell: String,
+    },
     Vacuum {
         #[arg(long)]
         yes: bool,
@@ -73,6 +78,7 @@ fn main() {
         Commands::Cancel { session } => cmd_cancel(&session),
         Commands::Doctor { integrity, json } => cmd_doctor(integrity, json),
         Commands::Optimize => cmd_optimize(),
+        Commands::Init { shell } => cmd_init(&shell),
         Commands::Vacuum { yes, y } => cmd_vacuum(yes || y),
     };
 
@@ -359,20 +365,10 @@ fn cmd_list(session: &str, limit: u32) -> Result<(), String> {
 
     let max_step = lines.iter().map(|(step, _)| *step).max().unwrap_or(0);
     let width = max_step.to_string().len();
-    let home_raw = std::env::var("HOME").unwrap_or_default();
-    let home = if home_raw.ends_with('/') && home_raw.len() > 1 {
-        home_raw.trim_end_matches('/').to_string()
-    } else {
-        home_raw
-    };
+    let home = env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
+    let separator = std::path::MAIN_SEPARATOR;
     for (step, path) in lines.into_iter().rev() {
-        let display_path = if !home.is_empty() && path == home {
-            "~".to_string()
-        } else if !home.is_empty() && path.starts_with(&(home.clone() + "/")) {
-            format!("~{}", &path[home.len()..])
-        } else {
-            path
-        };
+        let display_path = abbreviate_home(&path, &home, separator, cfg!(windows));
         println!("[{:>width$}] {}", step, display_path, width = width);
     }
 
@@ -479,9 +475,48 @@ fn open_db() -> Result<Connection, String> {
     Ok(conn)
 }
 
-fn xdg_state_dir() -> Result<PathBuf, String> {
+/// Replaces a leading home directory with `~` for display.
+///
+/// Windows paths are compared case-insensitively because the file system is.
+fn abbreviate_home(path: &str, home: &str, separator: char, ignore_case: bool) -> String {
+    let home = if home.len() > 1 {
+        home.trim_end_matches(separator)
+    } else {
+        home
+    };
+    if home.is_empty() || path.len() < home.len() || !path.is_char_boundary(home.len()) {
+        return path.to_string();
+    }
+
+    let (head, rest) = path.split_at(home.len());
+    let head_matches = if ignore_case {
+        head.eq_ignore_ascii_case(home)
+    } else {
+        head == home
+    };
+    if head_matches && (rest.is_empty() || rest.starts_with(separator)) {
+        format!("~{rest}")
+    } else {
+        path.to_string()
+    }
+}
+
+fn state_dir() -> Result<PathBuf, String> {
     if let Ok(state_home) = env::var("XDG_STATE_HOME") {
         return Ok(PathBuf::from(state_home).join("back-directory"));
+    }
+
+    if cfg!(windows) {
+        if let Some(local_app_data) = env::var_os("LOCALAPPDATA").filter(|v| !v.is_empty()) {
+            return Ok(PathBuf::from(local_app_data).join("back-directory"));
+        }
+        let profile = env::var_os("USERPROFILE")
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| "bd: LOCALAPPDATA not set".to_string())?;
+        return Ok(PathBuf::from(profile)
+            .join("AppData")
+            .join("Local")
+            .join("back-directory"));
     }
 
     let home = env::var("HOME").map_err(|_| "bd: HOME not set".to_string())?;
@@ -492,7 +527,7 @@ fn xdg_state_dir() -> Result<PathBuf, String> {
 }
 
 fn db_path() -> Result<PathBuf, String> {
-    Ok(xdg_state_dir()?.join("bd.sqlite3"))
+    Ok(state_dir()?.join("bd.sqlite3"))
 }
 
 fn rotate_events(tx: &rusqlite::Transaction<'_>, session: &str) -> Result<(), String> {
@@ -801,6 +836,16 @@ fn cmd_optimize() -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_init(shell: &str) -> Result<(), String> {
+    match shell {
+        "powershell" | "pwsh" => {
+            print!("{POWERSHELL_WRAPPER}");
+            Ok(())
+        }
+        _ => Err("bd: init supports only: powershell".to_string()),
+    }
+}
+
 fn cmd_vacuum(yes: bool) -> Result<(), String> {
     if !yes {
         return Err("bd: vacuum requires --yes (this deletes all history)".to_string());
@@ -861,4 +906,51 @@ fn current_ts() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::abbreviate_home;
+
+    #[test]
+    fn abbreviates_unix_home() {
+        assert_eq!(abbreviate_home("/home/u", "/home/u", '/', false), "~");
+        assert_eq!(
+            abbreviate_home("/home/u/a b", "/home/u/", '/', false),
+            "~/a b"
+        );
+        assert_eq!(
+            abbreviate_home("/home/user2", "/home/u", '/', false),
+            "/home/user2"
+        );
+        assert_eq!(
+            abbreviate_home("/Home/u/a", "/home/u", '/', false),
+            "/Home/u/a"
+        );
+        assert_eq!(abbreviate_home("/tmp", "", '/', false), "/tmp");
+        assert_eq!(abbreviate_home("/tmp", "/", '/', false), "/tmp");
+    }
+
+    #[test]
+    fn abbreviates_windows_home() {
+        let home = r"C:\Users\u";
+        assert_eq!(abbreviate_home(r"C:\Users\u", home, '\\', true), "~");
+        assert_eq!(
+            abbreviate_home(r"c:\users\U\src", home, '\\', true),
+            r"~\src"
+        );
+        assert_eq!(
+            abbreviate_home(r"C:\Users\u2\src", home, '\\', true),
+            r"C:\Users\u2\src"
+        );
+        assert_eq!(abbreviate_home(r"D:\work", home, '\\', true), r"D:\work");
+    }
+
+    #[test]
+    fn keeps_paths_that_split_inside_a_character() {
+        assert_eq!(
+            abbreviate_home("/h/\u{3042}", "/h/\u{e3}", '/', false),
+            "/h/\u{3042}"
+        );
+    }
 }

@@ -25,8 +25,8 @@ From a local clone:
 nix develop
 ```
 
-This drops you into a shell with the Rust toolchain, shell runtimes, SQLite, shellcheck,
-actionlint, asciinema, and agg available. Run the same full check used by CI:
+This drops you into a shell with the Rust toolchain, shell runtimes (including PowerShell
+where nixpkgs provides it), SQLite, shellcheck, actionlint, asciinema, and agg available. Run the same full check used by CI:
 
 ```sh
 scripts/check.sh
@@ -98,7 +98,50 @@ wrapper, isolated package lifecycle, and committed demo-media checks. The lifecy
 use temporary `HOME` and `XDG_STATE_HOME` directories and never source real shell rc files.
 
 To keep `main` healthy, enable branch protection and require both `build-test` jobs
-(`macos-latest` and `ubuntu-latest`) to pass before merging.
+(`macos-latest` and `ubuntu-latest`) and the `windows` job to pass before merging.
+
+### Windows and PowerShell
+
+`scripts/bd.ps1` is the PowerShell wrapper. It is embedded into `bd-core` and printed by
+`bd-core init powershell`, so the profile line is the same for every package manager.
+Keep the file ASCII-only: Windows PowerShell 5.1 reads BOM-less scripts in the ANSI code
+page.
+
+- Directory changes are recorded through `LocationChangedAction` on PowerShell 7+ and
+  through a wrapped `prompt` function on Windows PowerShell 5.1. Setting the environment
+  variable `BD_HOOK=prompt` before loading forces the prompt hook.
+- Session keys are the PowerShell process id plus its start time, unless `BD_SESSION_ID`
+  is set in the environment before loading.
+- Only file system locations are recorded (not the registry or other providers).
+- State lives in `%LOCALAPPDATA%\back-directory\bd.sqlite3`; `XDG_STATE_HOME` wins when set.
+
+`scripts/e2e-smoke.ps1` is the PowerShell counterpart of `scripts/e2e-smoke.sh`. The Nix
+shell provides PowerShell 7 where nixpkgs builds it (not on `x86_64-darwin`), so
+`scripts/check.sh` runs the smoke test on macOS and Linux too. Windows PowerShell 5.1,
+the Windows build of `bd-core`, and drive-letter paths are only exercised by the
+`windows` CI job.
+
+### Windows packages
+
+`scripts/render-windows-packages.sh VERSION X64_SHA256 ARM64_SHA256 OUTPUT_DIR` renders
+the Scoop manifest, the winget manifests, and the Chocolatey package from a version and
+the SHA256 of the two release zips. The output is deterministic
+(`scripts/test-windows-packages.sh` checks this), and rendered files are not committed.
+No package edits the PowerShell profile.
+
+The release workflow builds `bd-core-x86_64-pc-windows-msvc.zip` and
+`bd-core-aarch64-pc-windows-msvc.zip` (each holds `bd-core.exe`, `bd.ps1`, and `LICENSE`),
+renders the definitions, and keeps them as the `windows-packages` workflow artifact.
+Publishing needs maintainer setup; a missing secret skips that channel with a warning.
+
+| Channel | Automated by the release workflow | Maintainer setup |
+| --- | --- | --- |
+| Scoop | Pushes `bucket/back-directory.json` to `masato-umeno/scoop-back-directory` | Create the bucket repository; add a `SCOOP_BUCKET_TOKEN` secret that can push to it |
+| Chocolatey | `choco pack`, then `choco push` to the community repository | Create a chocolatey.org account; add a `CHOCOLATEY_API_KEY` secret; answer moderation for new versions |
+| winget | Renders the manifests only | Open a pull request to `microsoft/winget-pkgs` with the `winget/manifests/...` directory from the artifact (CLA and review required) |
+
+The ARM64 binary is cross-compiled on an x64 runner, so CI builds it without running it.
+The Chocolatey package installs the x64 build only.
 
 ## SQLite schema
 
@@ -182,8 +225,10 @@ Additional retention cleanup runs about every 10 days:
 
 ## Notes
 
-- State lives in `~/.local/state/back-directory/bd.sqlite3` (or `$XDG_STATE_HOME`).
+- State lives in `~/.local/state/back-directory/bd.sqlite3` (or `$XDG_STATE_HOME`);
+  on Windows, `%LOCALAPPDATA%\back-directory\bd.sqlite3`.
 - History is isolated per session; each session has its own cursor and cancel state.
 - Session keys default to TTY + shell PID, so each shell is its own session unless
   overridden via `BD_SESSION_ID`.
-- Directory changes are captured via `PROMPT_COMMAND` (bash) or `chpwd` (zsh); no `cd` wrapper or per-prompt writes.
+- Directory changes are captured via `PROMPT_COMMAND` (bash), `chpwd` (zsh), or
+  `LocationChangedAction` / the `prompt` function (PowerShell); no `cd` wrapper or per-prompt writes.

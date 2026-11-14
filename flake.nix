@@ -15,6 +15,9 @@
         "x86_64-linux"
       ];
       forEachSystem = f: lib.genAttrs supportedSystems (system: f system);
+      # PowerShell runs the bd.ps1 smoke test; nixpkgs does not build it for every system.
+      powershellFor = pkgs:
+        lib.optionals (lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.powershell) [ pkgs.powershell ];
     in
     {
       packages = forEachSystem (system:
@@ -62,7 +65,7 @@
               ruby
               shellcheck
               zsh
-            ];
+            ] ++ powershellFor pkgs;
           } ''
             cp -R ${self} repo
             chmod -R u+w repo
@@ -73,6 +76,16 @@
             sh scripts/e2e-smoke.sh
             sh scripts/test-homebrew-formula.sh
             sh scripts/test-package-lifecycle.sh
+            # PowerShell needs a writable HOME, which the build sandbox does not provide.
+            export HOME="$TMPDIR/home"
+            mkdir -p "$HOME"
+            export POWERSHELL_TELEMETRY_OPTOUT=1
+            export DOTNET_CLI_TELEMETRY_OPTOUT=1
+            sh scripts/test-windows-packages.sh
+            if command -v pwsh >/dev/null 2>&1; then
+              pwsh -NoProfile -File scripts/e2e-smoke.ps1 -CoreBin "$BD_CORE_BIN"
+              pwsh -NoProfile -File scripts/e2e-smoke.ps1 -CoreBin "$BD_CORE_BIN" -Hook prompt
+            fi
             sh scripts/demo-media.sh check
             touch "$out"
           '';
@@ -97,7 +110,7 @@
               ruby
               asciinema
               asciinema-agg
-            ];
+            ] ++ powershellFor pkgs;
           };
         });
     };

@@ -14,4 +14,11 @@ actionlint .github/workflows/*.yml
 scripts/e2e-smoke.sh
 scripts/test-homebrew-formula.sh
 scripts/test-package-lifecycle.sh
+scripts/test-windows-packages.sh
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File scripts/e2e-smoke.ps1
+  pwsh -NoProfile -File scripts/e2e-smoke.ps1 -Hook prompt
+else
+  echo "pwsh not found; skipping the PowerShell wrapper smoke test" >&2
+fi
 scripts/demo-media.sh check
