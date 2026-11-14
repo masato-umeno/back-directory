@@ -20,6 +20,7 @@ Semantic Versioning.
 - Reject unexpected arguments to `bd optimize` and `bd vacuum` in the wrappers.
 - Fix the wrappers leaving the next directory change unrecorded after a failed `cd`.
 - Run one shared check script (`scripts/check.sh`) locally and in CI.
+- Delete the events and undo moves of sessions removed by retention cleanup.
 
 ## [0.1.2] - 2026-01-03
 

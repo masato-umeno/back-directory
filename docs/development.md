@@ -292,6 +292,7 @@ To prevent unbounded growth, the `events` table is rotated per session:
 Additional retention cleanup runs about every 10 days:
 
 - `sessions`: delete rows with `last_seen_at` older than 180 days (excluding the current session).
+- `events` and `undo_moves`: delete rows whose `session_key` has no `sessions` row (excluding the current session).
 - `undo_moves`: delete rows with `created_at` older than 90 days.
 - Cleanup scheduling uses `meta.last_cleanup_at`.
 

@@ -315,7 +315,8 @@ command with diagrams and an example.
 
 - scripts/: distribution scripts (install.sh, bd.bash, bd.zsh, bd.ps1) and package
   renderers (Homebrew formula, Scoop / winget / Chocolatey definitions)
-- src/: Rust implementation (bd-core)
+- src/: Rust implementation of `bd-core`, split into CLI, database, history, cleanup,
+  doctor, error, and formatting modules
 
 ## Docs
 

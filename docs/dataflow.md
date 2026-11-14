@@ -195,7 +195,8 @@ flowchart TD
   start([record, back, list, or cancel]) --> due{"10 days since<br/>last_cleanup_at?"}
   due -- no --> cmd[Run the command]
   due -- yes --> s["Delete sessions not seen for 180 days,<br/>except the current one"]
-  s --> u[Delete undo_moves older than 90 days]
+  s --> o["Delete events and undo_moves whose session<br/>has no sessions row, except the current session"]
+  o --> u[Delete undo_moves older than 90 days]
   u --> m[Set last_cleanup_at to now]
   m --> cmd
   cmd --> isrec{"Was it record?"}
@@ -209,11 +210,8 @@ flowchart TD
 | What | When | Rule |
 | --- | --- | --- |
 | Retention cleanup | At most once every 10 days | Remove sessions unused for 180 days and undo moves older than 90 days |
+| Orphan cleanup | With retention cleanup | Remove `events` and `undo_moves` whose session no longer has a `sessions` row, except for the current session |
 | Event rotation | On every `record` | Keep the newest 10,000 events of the session |
-
-Known gap: retention cleanup removes the `sessions` row but leaves that session's
-`events` rows behind. See
-[issue 7](https://github.com/masato-umeno/back-directory/issues/7).
 
 Space freed by deletes stays inside the file until `bd optimize` runs SQLite `VACUUM`.
 `bd vacuum` is different: it deletes the database file and all history. See
