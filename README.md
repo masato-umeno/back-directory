@@ -284,6 +284,33 @@ Disable temporarily: comment out the `source .../bd.*` line in your shell rc fil
 In short, `bd` complements existing commands by making session history navigable and making
 backtracking reversible.
 
+## How it works
+
+```mermaid
+flowchart LR
+  you([You])
+
+  subgraph shell["Your shell"]
+    hook["Directory-change hook"]
+    bdfn["bd function"]
+  end
+
+  core["bd-core"]
+  db[("Local SQLite file")]
+
+  you -- "cd" --> hook
+  you -- "bd N" --> bdfn
+  hook -- "record the new directory" --> core
+  bdfn -- "where is N steps back?" --> core
+  core -- "path" --> bdfn
+  core <--> db
+```
+
+A small shell function and hook do the parts that must run inside your shell. The Rust
+binary `bd-core` keeps the history, one per shell session, in a local SQLite file.
+Nothing leaves your machine. [docs/dataflow.md](docs/dataflow.md) walks through each
+command with diagrams and an example.
+
 ## Layout
 
 - scripts/: distribution scripts (install.sh, bd.bash, bd.zsh, bd.ps1) and package
@@ -292,6 +319,9 @@ backtracking reversible.
 
 ## Docs
 
-- `docs/development.md`: development setup and internals
-- `docs/dataflow.md`: SQLite dataflow and cleanup lifecycle
-- `docs/maintenance.md`: optimize and doctor best practices
+| Document | Read it when you want to |
+| --- | --- |
+| [docs/dataflow.md](docs/dataflow.md) | Understand what `bd`, `bd N`, and `bd c` do to the history, and how cleanup works |
+| [docs/maintenance.md](docs/maintenance.md) | Choose between `bd doctor`, `bd optimize`, and `bd vacuum` |
+| [docs/development.md](docs/development.md) | Set up a development environment, run the checks, or follow the release pipeline |
+| [CHANGELOG.md](CHANGELOG.md) | See what changed between releases |

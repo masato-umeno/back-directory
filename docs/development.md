@@ -2,7 +2,10 @@
 
 ## How it works
 
-`bd` is the user command provided by the shell wrappers (bash/zsh). The wrapper installs
+[dataflow.md](dataflow.md) has the diagrams: components, tables, what each command does
+to the database, and cleanup.
+
+`bd` is the user command provided by the shell wrappers (bash/zsh/PowerShell). The wrapper installs
 lightweight hooks, validates arguments, and calls the Rust binary `bd-core`. `bd-core`
 stores and queries history in SQLite, computes the target path (including cancel
 behavior), and returns it to the wrapper, which then runs `builtin cd`.
@@ -99,6 +102,76 @@ use temporary `HOME` and `XDG_STATE_HOME` directories and never source real shel
 
 To keep `main` healthy, enable branch protection and require both `build-test` jobs
 (`macos-latest` and `ubuntu-latest`) and the `windows` job to pass before merging.
+
+### What the checks cover
+
+```mermaid
+flowchart LR
+  check["scripts/check.sh"]
+
+  subgraph rust["Rust"]
+    fmt["cargo fmt --check"]
+    clippy["cargo clippy"]
+    test["cargo test"]
+    build["cargo build --release"]
+  end
+
+  subgraph lint["Lint"]
+    sc["shellcheck"]
+    al["actionlint"]
+  end
+
+  subgraph smoke["Wrappers and packages"]
+    e2e["e2e-smoke.sh: bash and zsh"]
+    ps["e2e-smoke.ps1: PowerShell 7"]
+    brew["test-homebrew-formula.sh"]
+    win["test-windows-packages.sh"]
+    life["test-package-lifecycle.sh"]
+    demo["demo-media.sh check"]
+  end
+
+  check --> rust --> lint --> smoke
+```
+
+| Where it runs | What runs |
+| --- | --- |
+| Locally | `nix develop --command scripts/check.sh`, or `nix flake check` for a sandboxed run |
+| CI `build-test` (macOS, Ubuntu) | `scripts/check.sh` |
+| CI `windows` | clippy, tests, build, and `e2e-smoke.ps1` on Windows PowerShell 5.1 and PowerShell 7 |
+
+### Release pipeline
+
+Publishing a GitHub release starts `.github/workflows/release.yml`.
+
+```mermaid
+flowchart TD
+  rel([GitHub release published]) --> build
+
+  subgraph build["build: one job per target"]
+    direction LR
+    t1["aarch64-apple-darwin"]
+    t2["x86_64-apple-darwin"]
+    t3["x86_64-unknown-linux-gnu"]
+    t4["x86_64-pc-windows-msvc"]
+    t5["aarch64-pc-windows-msvc"]
+  end
+
+  build --> assets["Release assets:<br/>tar.gz for macOS and Linux, zip for Windows"]
+  build --> tap["update-homebrew-tap:<br/>render the formula from the artifact SHA256s"]
+  build --> wp["windows-packages:<br/>render Scoop, winget, and Chocolatey definitions"]
+
+  tap -- "needs HOMEBREW_TAP_TOKEN" --> taprepo[("masato-umeno/homebrew-back-directory")]
+  wp -- "needs SCOOP_BUCKET_TOKEN" --> scoop[("masato-umeno/scoop-back-directory")]
+  wp --> choco["chocolatey: pack, then push"]
+  choco -- "needs CHOCOLATEY_API_KEY" --> chocorepo[("Chocolatey community repository")]
+  wp --> winget["winget manifests kept as an artifact"]
+  winget -. "manual pull request" .-> wingetrepo[("microsoft/winget-pkgs")]
+```
+
+- A missing `HOMEBREW_TAP_TOKEN` fails the tap job. A missing Scoop or Chocolatey secret
+  skips that channel with a warning.
+- Running the workflow by hand (`workflow_dispatch`) builds the binaries and renders the
+  Windows package definitions as artifacts, but publishes nothing and skips the tap job.
 
 ### Windows and PowerShell
 
