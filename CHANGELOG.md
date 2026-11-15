@@ -7,7 +7,20 @@ Semantic Versioning.
 
 ## [Unreleased]
 
-- Add notes for upcoming releases here.
+- Add a Homebrew formula that installs prebuilt release binaries; it does not edit shell
+  rc files.
+- Add Windows support: `bd-core` builds for Windows (x64 and ARM64) and stores state in
+  `%LOCALAPPDATA%\back-directory`, and a PowerShell wrapper (`scripts/bd.ps1`) supports
+  Windows PowerShell 5.1 and PowerShell 7+.
+- Add `bd-core init powershell`, which prints the PowerShell wrapper for a one-line
+  profile setup.
+- Add Scoop, winget, and Chocolatey package definitions rendered from release assets;
+  they do not edit the PowerShell profile.
+- Add a Nix flake with a pinned development shell and `nix flake check`.
+- Reject unexpected arguments to `bd optimize` and `bd vacuum` in the wrappers.
+- Fix the wrappers leaving the next directory change unrecorded after a failed `cd`.
+- Run one shared check script (`scripts/check.sh`) locally and in CI.
+- Delete the events and undo moves of sessions removed by retention cleanup.
 
 ## [0.1.2] - 2026-01-03
 
@@ -19,6 +32,6 @@ Semantic Versioning.
 
 - Fix bash wrapper always showing help due to a malformed test.
 
-## [0.1.0] - 2024-01-02
+## [0.1.0] - 2026-01-02
 
 - Initial public release.

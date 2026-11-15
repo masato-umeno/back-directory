@@ -1,111 +1,218 @@
-# Dataflow and Cleanup (SQLite)
+# Dataflow and cleanup
 
-This document describes how data accumulates in the SQLite DB and how cleanup runs,
-using simple diagrams and sample transitions.
+This document shows how `bd` records directory changes, how `bd N` and `bd c` move
+through them, and how old data is removed. The diagrams render on GitHub.
 
-## Overview: tables and purpose
+## Components
 
-```
-events      : directory-change history (per session, rotated)
-sessions    : per-session cursor and last bd state
-undo_moves  : cancel stack (per session)
-meta        : last_cleanup_at
-```
+`bd` is a shell function. It cannot be a plain binary, because a child process cannot
+change the directory of the shell that started it. The shell part is kept small and the
+Rust binary `bd-core` owns all state.
 
-## Dataflow: record, back, cancel
+```mermaid
+flowchart LR
+  you([You])
 
-### 1) `bd record` (directory changed)
+  subgraph shell["Your shell: bash, zsh, or PowerShell"]
+    hook["Directory-change hook"]
+    bdfn["bd function"]
+  end
 
-```
-events:      + (session_key, path, ts)
-sessions:    upsert cursor_id + reset last_bd_* + last_seen_at
-undo_moves:  delete all rows for this session
-```
+  core["bd-core"]
+  db[("bd.sqlite3")]
 
-Sample (session = "S1"):
-
-```
-events
-+----+---------+---------+---------+
-| id | session | path    | ts      |
-+----+---------+---------+---------+
-|  1 | S1      | /work   | 1000    |
-+----+---------+---------+---------+
-
-sessions
-+---------+-----------+---------------+--------------+------------+---------------+--------------+
-| session | cursor_id | last_bd_delta | last_bd_from | last_bd_to | last_bd_armed | last_seen_at |
-+---------+-----------+---------------+--------------+------------+---------------+--------------+
-| S1      | 1         | 0             | 0            | 0          | 0             | 1000         |
-+---------+-----------+---------------+--------------+------------+---------------+--------------+
-
-undo_moves
-+----+---------+---------+-------+------------+
-| id | session | from_id | to_id | created_at |
-+----+---------+---------+-------+------------+
-| (cleared for S1 on record)                  |
-+---------------------------------------------+
+  you -- "cd somewhere" --> hook
+  you -- "bd, bd N, bd c, bd ls" --> bdfn
+  hook -- "record" --> core
+  bdfn -- "back, cancel, list" --> core
+  core -- "target path" --> bdfn
+  core <--> db
 ```
 
-### 2) `bd 3` (move back)
+| Part | Where | Job |
+| --- | --- | --- |
+| Hook | `chpwd` (zsh), `PROMPT_COMMAND` (bash), `LocationChangedAction` or `prompt` (PowerShell) | Calls `bd-core record` after the directory changes |
+| `bd` function | `scripts/bd.zsh`, `scripts/bd.bash`, `scripts/bd.ps1` | Checks arguments, asks `bd-core` for a path, then changes directory |
+| `bd-core` | `src/main.rs` | Stores history, picks the target, keeps the undo stack |
+| Database | `${XDG_STATE_HOME:-~/.local/state}/back-directory/bd.sqlite3`, or `%LOCALAPPDATA%\back-directory\bd.sqlite3` on Windows | One file shared by all shells |
 
-```
-sessions:   cursor_id moves to target_id, last_bd_* set, last_seen_at updated
-undo_moves: + (session_key, from_id, to_id, created_at)
-events:     unchanged
-```
+Each shell is one session. The wrapper computes a session key when it loads (terminal and
+process id in zsh, parent and process id plus host and user in bash, process id and start
+time in PowerShell), unless `BD_SESSION_ID` is already set. Every row in the database
+belongs to one session key.
 
-Sample (cursor moves from id=8 to id=5):
+## Tables
 
-```
-sessions (S1)
-cursor_id: 8 -> 5
-last_bd_delta: 3
-last_bd_from_id: 8
-last_bd_to_id: 5
-last_bd_armed: 1
+```mermaid
+erDiagram
+  sessions ||--o{ events : "has history"
+  sessions ||--o{ undo_moves : "has undo stack"
+  events ||--o| sessions : "cursor_id points at"
+  events ||--o{ undo_moves : "from_id and to_id point at"
 
-undo_moves
-+----+---------+---------+-------+------------+
-| id | session | from_id | to_id | created_at |
-+----+---------+---------+-------+------------+
-|  7 | S1      | 8       | 5     | 2000       |
-+----+---------+---------+-------+------------+
-```
-
-### 3) `bd c` (cancel)
-
-```
-sessions:   cursor_id restored to last_bd_from_id, last_bd_* reset, last_seen_at updated
-undo_moves: delete the latest row (stack pop)
-events:     unchanged
-```
-
-## Cleanup cycle
-
-Cleanup runs **about once every 10 days**. The run is skipped if the last cleanup
-is more recent than 10 days (tracked in `meta.last_cleanup_at`).
-
-```
-if now - last_cleanup_at >= 10 days:
-  delete sessions where last_seen_at < now - 180 days (except current session)
-  delete undo_moves where created_at < now - 90 days
-  update last_cleanup_at
-```
-
-## Events rotation (per session)
-
-To cap growth, `events` is rotated per session:
-
-```
-if events(session) >= 10,000:
-  cutoff_id = 10,000th newest id
-  delete events older than min(cutoff_id, any referenced id in sessions/undo_moves)
+  events {
+    INTEGER id PK
+    TEXT session_key
+    TEXT path
+    INTEGER ts
+  }
+  sessions {
+    TEXT session_key PK
+    INTEGER cursor_id
+    INTEGER last_seen_at
+  }
+  undo_moves {
+    INTEGER id PK
+    TEXT session_key
+    INTEGER from_id
+    INTEGER to_id
+    INTEGER created_at
+  }
+  meta {
+    TEXT key PK
+    INTEGER value
+  }
 ```
 
-This ensures `events` rows still referenced by the current session state are preserved.
+- `events`: one row per directory change, in order.
+- `sessions`: where the session currently stands in its history (`cursor_id`).
+- `undo_moves`: one row per `bd` move that can still be cancelled.
+- `meta`: the time of the last cleanup (`last_cleanup_at`).
 
-## Notes
+The links are by convention; the schema declares no foreign keys. `sessions` also has
+`last_bd_*` columns that are written but no longer drive any decision. The full column
+list is in [development.md](development.md#sqlite-schema).
 
-- Cleanup does not run on every command; it runs only when the 10-day interval is exceeded.
-- VACUUM is manual. Deleting `bd.sqlite3` resets all history and metadata.
+## The cursor
+
+A session is either at the newest event or somewhere behind it.
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> AtNewest: wrapper loads
+  AtNewest --> AtNewest: cd
+  AtNewest --> MovedBack: bd N
+  MovedBack --> MovedBack: bd N
+  MovedBack --> MovedBack: bd c, undo stack not empty
+  MovedBack --> AtNewest: bd c, undo stack empty
+  MovedBack --> AtNewest: cd
+```
+
+- `bd N` moves the cursor back and pushes the move onto the undo stack.
+- `bd c` pops one move and puts the cursor back where that move started.
+- A normal `cd` adds an event, moves the cursor to it, and clears the undo stack.
+
+## What each command does
+
+### A directory change (`record`)
+
+```mermaid
+sequenceDiagram
+  actor You
+  participant Shell as Shell hook
+  participant Core as bd-core
+  participant DB as SQLite
+
+  You->>Shell: cd /work/b
+  Shell->>Core: record --session S1 --pwd /work/b
+  Core->>DB: insert into events, unless the newest event is the same path
+  Core->>DB: sessions.cursor_id = newest event
+  Core->>DB: delete this session's undo_moves
+  Core->>DB: rotate old events of this session
+```
+
+The hook discards the output of `record`, so a failure here is silent. `bd doctor` shows
+the state of the database.
+
+### Going back (`bd N`)
+
+```mermaid
+sequenceDiagram
+  actor You
+  participant Fn as bd function
+  participant Core as bd-core
+  participant DB as SQLite
+
+  You->>Fn: bd 2
+  Fn->>Core: back --session S1 --n 2
+  Core->>DB: read events older than the cursor, newest first
+  Note over Core: Count steps and stop at step N.<br/>Skip directories that no longer exist.
+  Core->>DB: sessions.cursor_id = target
+  Core->>DB: push (from, to) onto undo_moves
+  Core-->>Fn: /work/x
+  Fn->>Fn: cd /work/x, and tell the hook not to record it
+```
+
+- Directories that no longer exist still count as a step, but are never chosen. If step
+  `N` is missing, the next older existing directory is used.
+- If the history is shorter than `N`, `bd` goes to the oldest existing directory.
+- The move itself is not added to `events`.
+
+### Cancelling (`bd c`)
+
+```mermaid
+sequenceDiagram
+  actor You
+  participant Fn as bd function
+  participant Core as bd-core
+  participant DB as SQLite
+
+  You->>Fn: bd c
+  Fn->>Core: cancel --session S1
+  Core->>DB: read the newest row of undo_moves
+  Core->>DB: sessions.cursor_id = from_id
+  Core->>DB: delete that undo_moves row
+  Core-->>Fn: /work/b
+  Fn->>Fn: cd /work/b, and tell the hook not to record it
+```
+
+## Worked example
+
+Start in `/work/x`, then `cd /work/a` and `cd /work/b`.
+
+| Step | Command | `events` (id: path) | Cursor | Undo stack | You are in |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `cd /work/b` | 1: x, 2: a, 3: b | 3 | empty | b |
+| 2 | `bd 2` | 1: x, 2: a, 3: b | 1 | 3 → 1 | x |
+| 3 | `bd c` | 1: x, 2: a, 3: b | 3 | empty | b |
+| 4 | `bd 2` | 1: x, 2: a, 3: b | 1 | 3 → 1 | x |
+| 5 | `cd /work/c` | 1: x, 2: a, 3: b, 4: c | 4 | empty | c |
+| 6 | `bd` | 1: x, 2: a, 3: b, 4: c | 3 | 4 → 3 | b |
+
+Step 6 lands in `b`, not in `x`, although `x` is where you were before `c`. `bd` walks the
+log of `cd` commands, and the `bd 2` in step 4 is not part of that log. Whether this
+should change is tracked in
+[issue 10](https://github.com/masato-umeno/back-directory/issues/10).
+
+## Cleanup
+
+Two mechanisms keep the database small. Both run inside ordinary commands; there is no
+background process.
+
+```mermaid
+flowchart TD
+  start([record, back, list, or cancel]) --> due{"10 days since<br/>last_cleanup_at?"}
+  due -- no --> cmd[Run the command]
+  due -- yes --> s["Delete sessions not seen for 180 days,<br/>except the current one"]
+  s --> o["Delete events and undo_moves whose session<br/>has no sessions row, except the current session"]
+  o --> u[Delete undo_moves older than 90 days]
+  u --> m[Set last_cleanup_at to now]
+  m --> cmd
+  cmd --> isrec{"Was it record?"}
+  isrec -- no --> done([Done])
+  isrec -- yes --> big{"10,000 or more events<br/>in this session?"}
+  big -- no --> done
+  big -- yes --> rot["Delete this session's events older than the<br/>10,000th newest, keeping any that the cursor<br/>or the undo stack still points at"]
+  rot --> done
+```
+
+| What | When | Rule |
+| --- | --- | --- |
+| Retention cleanup | At most once every 10 days | Remove sessions unused for 180 days and undo moves older than 90 days |
+| Orphan cleanup | With retention cleanup | Remove `events` and `undo_moves` whose session no longer has a `sessions` row, except for the current session |
+| Event rotation | On every `record` | Keep the newest 10,000 events of the session |
+
+Space freed by deletes stays inside the file until `bd optimize` runs SQLite `VACUUM`.
+`bd vacuum` is different: it deletes the database file and all history. See
+[maintenance.md](maintenance.md).

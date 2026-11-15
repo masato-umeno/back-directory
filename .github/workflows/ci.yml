@@ -27,21 +27,53 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Format
-        run: cargo fmt --check
+      - name: Install distribution check tools (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck zsh
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install distribution check tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install actionlint shellcheck
+
+      - name: Full CI check
+        run: scripts/check.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test
-        run: cargo test
+        run: cargo test --all-targets --all-features
 
-      - name: Build (release)
+      - name: Build
         run: cargo build --release
 
-      - name: Install zsh (Ubuntu)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: PowerShell wrapper smoke test (Windows PowerShell 5.1)
+        shell: powershell
+        run: .\scripts\e2e-smoke.ps1
 
-      - name: E2E smoke (wrapper + core)
-        run: scripts/e2e-smoke.sh
+      # Each run needs its own process: bd.ps1 initializes only once per session.
+      - name: PowerShell wrapper smoke test (PowerShell 7, LocationChangedAction hook)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/e2e-smoke.ps1
+
+      - name: PowerShell wrapper smoke test (PowerShell 7, prompt hook)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/e2e-smoke.ps1 -Hook prompt

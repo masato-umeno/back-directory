@@ -9,6 +9,8 @@ while getopts ":qL:" opt; do
     L)
       rate="$OPTARG"
       ;;
+    *)
+      ;;
   esac
 done
 shift $((OPTIND - 1))

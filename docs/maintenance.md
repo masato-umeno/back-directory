@@ -2,6 +2,28 @@
 
 This note documents best practices for database maintenance.
 
+## Which command do I need?
+
+```mermaid
+flowchart TD
+  start([Something about the database]) --> q1{"Want to delete<br/>all history?"}
+  q1 -- yes --> vacuum["bd vacuum<br/>deletes the database file"]
+  q1 -- no --> doctor["bd doctor<br/>read-only status"]
+  doctor --> q2{"optimize<br/>recommended: yes?"}
+  q2 -- yes --> optimize["bd optimize<br/>reclaims free space, keeps history"]
+  q2 -- no --> q3{"Suspect corruption?"}
+  q3 -- yes --> integrity["bd doctor --integrity"]
+  q3 -- no --> done([Nothing to do])
+```
+
+| Command | Changes data? | Keeps history? | Use it to |
+| --- | --- | --- | --- |
+| `bd doctor` | No | Yes | Look at size, row counts, and the last cleanup |
+| `bd optimize` | Rewrites the file | Yes | Shrink the file after many deletes (runs SQLite `VACUUM`) |
+| `bd vacuum` | Deletes the file | No | Start over with an empty history |
+
+The names are easy to mix up: `bd vacuum` is the destructive one.
+
 ## Principles
 
 - `optimize` is manual only. Do not run it automatically.

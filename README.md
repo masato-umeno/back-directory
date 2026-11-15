@@ -29,18 +29,96 @@ Warning: `bd vacuum` deletes all history. Use with care.
 
 ## Install
 
+#### Homebrew
+
+This repository includes the source formula template at `Formula/back-directory.rb`.
+Releases are expected to update the public tap `masato-umeno/homebrew-back-directory` through
+GitHub Actions, not by local interactive GitHub operations.
+
+For users, the install flow stays:
+
+```sh
+brew tap masato-umeno/back-directory
+brew install back-directory
+```
+
+The formula uses release binaries for Apple Silicon macOS, Intel macOS, and x86_64 Linux,
+so installing does not build Rust or require a Rust toolchain. Other platforms currently
+fail with an explicit unsupported-platform message; a source-build fallback is not yet
+provided. A Homebrew bottle may be used when the tap publishes one, but is not required.
+
+For maintainers, the release workflow needs a `HOMEBREW_TAP_TOKEN` secret with permission
+to push to `masato-umeno/homebrew-back-directory`.
+
+`bd` is a shell wrapper, so after installing with Homebrew you still need to source the
+matching wrapper from the keg:
+
+```sh
+# bash
+source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.bash"
+
+# zsh
+source "$(brew --prefix)/opt/back-directory/share/back-directory/bd.zsh"
+```
+
+Start a new shell or reload your shell rc after adding the `source` line. Homebrew does
+not edit shell rc files on install, so `brew uninstall back-directory` removes everything
+Homebrew added.
+
+#### Windows (PowerShell)
+
+`bd` works in Windows PowerShell 5.1 and PowerShell 7+. Windows packages are published
+starting with the first release that ships Windows binaries (after v0.1.2), for x64 and
+ARM64. Install `bd-core` with one of:
+
+```powershell
+# Scoop
+scoop bucket add back-directory https://github.com/masato-umeno/scoop-back-directory
+scoop install back-directory
+
+# winget
+winget install masato-umeno.back-directory
+
+# Chocolatey (x64 build, from an elevated shell)
+choco install back-directory
+```
+
+`bd` is a PowerShell function, so after installing add this one line to your PowerShell
+profile yourself (open it with `notepad $PROFILE`; create the file if it does not exist):
+
+```powershell
+Invoke-Expression (& bd-core init powershell | Out-String)
+```
+
+Start a new PowerShell session after editing the profile. None of the packages edit your
+profile on install.
+
+> [!IMPORTANT]
+> If your profile also sets up a custom prompt (oh-my-posh, starship, posh-git, or your
+> own `function prompt`), put the `bd` line **after** it, at the end of the profile. On
+> Windows PowerShell 5.1, `bd` records directory changes by wrapping the `prompt`
+> function, so a prompt defined later replaces the wrapper and nothing is recorded. `bd`
+> then prints a warning that names the fix, and `bd doctor` shows `installed: no` under
+> `shell.hook`. PowerShell 7 records through `LocationChangedAction` by default and works
+> in either order, unless you force the prompt hook with `BD_HOOK=prompt`.
+
+Without a package manager, download `bd-core-x86_64-pc-windows-msvc.zip` (or
+`bd-core-aarch64-pc-windows-msvc.zip`) from the GitHub release, extract it to a directory
+on your `PATH`, and add the same profile line. The zip also contains `bd.ps1`, which you
+can dot-source instead: `. "C:\path\to\bd.ps1"`.
+
 #### Recommended: install.sh
 
 1) Run the installer directly from GitHub:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/install.sh | sh
 ```
 
 If you prefer to inspect the script first:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/install.sh -o install.sh
 sh ./install.sh
 ```
 
@@ -82,9 +160,9 @@ mv bd-core ~/.local/bin/bd-core
 
 ```sh
 mkdir -p ~/.config/back-directory
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/bd.bash \
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/bd.bash \
   -o ~/.config/back-directory/bd.bash
-curl -fsSL https://raw.githubusercontent.com/01-mu/back-directory/main/scripts/bd.zsh \
+curl -fsSL https://raw.githubusercontent.com/masato-umeno/back-directory/main/scripts/bd.zsh \
   -o ~/.config/back-directory/bd.zsh
 ```
 
@@ -98,6 +176,29 @@ export BD_CORE_BIN=/path/to/bd-core
 
 Checksums (planned): future releases will publish SHA256 sums for verification.
 
+#### Development with Nix flakes
+
+For a reproducible local toolchain, this repository also exposes a flake:
+
+```sh
+nix develop
+cargo test
+```
+
+If you use `direnv`, the repository also includes a root `.envrc`:
+
+```sh
+direnv allow
+cargo test
+```
+
+Useful one-off commands:
+
+```sh
+nix build .#bd-core
+nix run .#bd-core -- --help
+```
+
 ## Data and privacy
 
 `bd` stores local state in SQLite to support session-scoped backtracking and undo:
@@ -105,9 +206,44 @@ Checksums (planned): future releases will publish SHA256 sums for verification.
 - Data stored: directory paths, timestamps, session id, and undo/cancel bookkeeping (from/to ids).
 - Location: `${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3`
   (SQLite may also create `bd.sqlite3-wal` and `bd.sqlite3-shm`).
+  On Windows: `%LOCALAPPDATA%\back-directory\bd.sqlite3` unless `XDG_STATE_HOME` is set.
 - No external telemetry or network calls from the core binary.
 
 ## Uninstall
+
+For a Homebrew install:
+
+```sh
+brew uninstall back-directory
+brew untap masato-umeno/back-directory # optional
+```
+
+This removes Homebrew-owned binaries and wrappers. It intentionally leaves your shell rc
+line and local history because those are user-owned data. Remove the `source .../bd.*`
+line yourself. To erase history too, remove only
+`${XDG_STATE_HOME:-$HOME/.local/state}/back-directory` after checking the expanded path.
+
+For a Windows package install, remove the `Invoke-Expression (& bd-core init powershell ...)`
+line from your PowerShell profile first (`notepad $PROFILE`), then uninstall with the
+package manager you used:
+
+```powershell
+scoop uninstall back-directory
+scoop bucket rm back-directory # optional
+
+winget uninstall masato-umeno.back-directory
+
+choco uninstall back-directory
+```
+
+The packages leave your profile and local history alone. To erase history too, remove
+the state directory after checking the path:
+
+```powershell
+Remove-Item -Recurse "$env:LOCALAPPDATA\back-directory"
+```
+
+For an `install.sh` or manual install, use the following cleanup.
 
 Uninstall is a manual cleanup of files and shell config changes.
 
@@ -133,7 +269,8 @@ sudo rm -f /usr/local/bin/bd-core
 rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3"
 rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3-wal"
 rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/back-directory/bd.sqlite3-shm"
-rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/back-directory"
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/back-directory/bd.bash"
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/back-directory/bd.zsh"
 ```
 
 4) Revert shell setup changes:
@@ -155,13 +292,45 @@ Disable temporarily: comment out the `source .../bd.*` line in your shell rc fil
 In short, `bd` complements existing commands by making session history navigable and making
 backtracking reversible.
 
+## How it works
+
+```mermaid
+flowchart LR
+  you([You])
+
+  subgraph shell["Your shell"]
+    hook["Directory-change hook"]
+    bdfn["bd function"]
+  end
+
+  core["bd-core"]
+  db[("Local SQLite file")]
+
+  you -- "cd" --> hook
+  you -- "bd N" --> bdfn
+  hook -- "record the new directory" --> core
+  bdfn -- "where is N steps back?" --> core
+  core -- "path" --> bdfn
+  core <--> db
+```
+
+A small shell function and hook do the parts that must run inside your shell. The Rust
+binary `bd-core` keeps the history, one per shell session, in a local SQLite file.
+Nothing leaves your machine. [docs/dataflow.md](docs/dataflow.md) walks through each
+command with diagrams and an example.
+
 ## Layout
 
-- scripts/: distribution scripts (install.sh, bd.bash, bd.zsh)
-- src/: Rust implementation (bd-core)
+- scripts/: distribution scripts (install.sh, bd.bash, bd.zsh, bd.ps1) and package
+  renderers (Homebrew formula, Scoop / winget / Chocolatey definitions)
+- src/: Rust implementation of `bd-core`, split into CLI, database, history, cleanup,
+  doctor, error, and formatting modules
 
 ## Docs
 
-- `docs/development.md`: development setup and internals
-- `docs/dataflow.md`: SQLite dataflow and cleanup lifecycle
-- `docs/maintenance.md`: optimize and doctor best practices
+| Document | Read it when you want to |
+| --- | --- |
+| [docs/dataflow.md](docs/dataflow.md) | Understand what `bd`, `bd N`, and `bd c` do to the history, and how cleanup works |
+| [docs/maintenance.md](docs/maintenance.md) | Choose between `bd doctor`, `bd optimize`, and `bd vacuum` |
+| [docs/development.md](docs/development.md) | Set up a development environment, run the checks, or follow the release pipeline |
+| [CHANGELOG.md](CHANGELOG.md) | See what changed between releases |

@@ -14,11 +14,16 @@ This directory contains a reproducible asciinema demo for back-directory using a
 - `bash`
 - `bd-core` available on PATH, or a local build at `target/release/bd-core`
 
+Enter the pinned environment first:
+
+```bash
+nix develop
+```
+
 ## Record
 
 ```bash
-asciinema rec examples/bd-demo/media/bd-demo.cast \
-  --command "bash -lc 'cd examples/bd-demo && ./demo.sh'"
+scripts/demo-media.sh record
 ```
 
 The recording starts in `examples/bd-demo`, and all demo paths are relative to that directory.
@@ -26,9 +31,7 @@ The recording starts in `examples/bd-demo`, and all demo paths are relative to t
 ## Re-record
 
 ```bash
-rm -f examples/bd-demo/media/bd-demo.cast
-asciinema rec examples/bd-demo/media/bd-demo.cast \
-  --command "bash -lc 'cd examples/bd-demo && ./demo.sh'"
+scripts/demo-media.sh record
 ```
 
 ## Play
@@ -39,23 +42,14 @@ asciinema play examples/bd-demo/media/bd-demo.cast
 
 ## Convert to WebP
 
-Install `agg` (asciinema GIF/WebP generator):
-
-```bash
-# macOS (Homebrew)
-brew install agg
-
-# Linux (cargo)
-cargo install --git https://github.com/asciinema/agg
-```
-
 Convert the recording directly to WebP:
 
 ```bash
-agg --speed 1.25 --font-size 16 --cols 80 --fps-cap 30 \
-  examples/bd-demo/media/bd-demo.cast \
-  examples/bd-demo/media/bd-demo.webp
+scripts/demo-media.sh render
 ```
+
+Recording requires an interactive terminal and therefore stays a local operation. CI runs
+`scripts/demo-media.sh check` to validate that the committed cast and WebP are present.
 
 After converting, replace the demo image in the repository root `README.md` with
 `examples/bd-demo/media/bd-demo.webp`.

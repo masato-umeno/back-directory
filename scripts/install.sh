@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="01-mu/back-directory"
+REPO="masato-umeno/back-directory"
 BIN_NAME="bd-core"
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/back-directory"

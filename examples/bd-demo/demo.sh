@@ -5,7 +5,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 export PATH="$SCRIPT_DIR:$PATH"
 
 DEMO_HOME=$(cd -- "$SCRIPT_DIR/../.." && pwd -P)/examples
-DEMO_TILDE_PREFIX="~${DEMO_HOME#$HOME}"
+DEMO_TILDE_PREFIX="~${DEMO_HOME#"$HOME"}"
 
 # Ensure bd is available in this bash session.
 if [[ -f "$SCRIPT_DIR/../../scripts/bd.bash" ]]; then
@@ -20,9 +20,14 @@ fi
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/demo-magic.sh"
 
+# These variables are consumed by the sourced demo-magic helpers.
+# shellcheck disable=SC2034
 TYPE_SPEED=32
+# shellcheck disable=SC2034
 NO_WAIT=true
+# shellcheck disable=SC2034
 PROMPT_TIMEOUT=0
+# shellcheck disable=SC2034
 DEMO_CMD_COLOR="${BOLD}${CYAN}"
 
 pause() {
