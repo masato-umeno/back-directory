@@ -51,6 +51,9 @@ class BackDirectory < Formula
   end
 
   test do
-    assert_match "back-directory uses a local SQLite database", shell_output("#{bin}/bd-core --help")
+    assert_match "bd-core #{version}", shell_output("#{bin}/bd-core --version")
+    ENV["XDG_STATE_HOME"] = testpath.to_s
+    assert_match "\"events\":0", shell_output("#{bin}/bd-core doctor --json")
+    assert_path_exists testpath/"back-directory/bd.sqlite3"
   end
 end
