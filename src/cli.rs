@@ -42,6 +42,12 @@ pub enum Commands {
         integrity: bool,
         #[arg(long)]
         json: bool,
+        /// Hook mode reported by the shell wrapper (set by the wrapper, not by users)
+        #[arg(long, hide = true)]
+        hook: Option<String>,
+        /// Set by the shell wrapper when its hook is no longer installed
+        #[arg(long, hide = true, requires = "hook")]
+        hook_missing: bool,
     },
     Optimize,
     /// Print the shell wrapper for the given shell (supported: powershell)

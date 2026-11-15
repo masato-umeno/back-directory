@@ -5,7 +5,23 @@ use crate::format::{format_bytes, format_ts, json_escape};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
-pub fn run(conn: &Connection, path: &Path, integrity: bool, json: bool, now: i64) -> Result<()> {
+/// Hook state reported by the shell wrapper that called `doctor`.
+pub struct HookStatus {
+    pub mode: String,
+    pub installed: bool,
+}
+
+const HOOK_MISSING_HINT: &str =
+    "directory changes are not recorded; load bd after any prompt setup (move the bd line to the end of your profile)";
+
+pub fn run(
+    conn: &Connection,
+    path: &Path,
+    integrity: bool,
+    json: bool,
+    hook: Option<&HookStatus>,
+    now: i64,
+) -> Result<()> {
     let db_size = file_size(path);
     let wal_path = PathBuf::from(format!("{}-wal", path.display()));
     let shm_path = PathBuf::from(format!("{}-shm", path.display()));
@@ -86,6 +102,13 @@ pub fn run(conn: &Connection, path: &Path, integrity: bool, json: bool, now: i64
             last_cleanup_age = last_cleanup_age_days.map_or("null".to_string(), |v| v.to_string()),
             optimize_recommended = optimize_recommended,
         );
+        if let Some(hook) = hook {
+            payload.push_str(&format!(
+                ",\"hook_mode\":\"{}\",\"hook_installed\":{}",
+                json_escape(&hook.mode),
+                hook.installed
+            ));
+        }
         if let Some(integrity_json) = integrity_json {
             payload.push_str(&format!(",\"integrity_check\":{integrity_json}"));
         }
@@ -137,6 +160,15 @@ pub fn run(conn: &Connection, path: &Path, integrity: bool, json: bool, now: i64
     } else {
         println!("cleanup");
         println!("  last_cleanup_at: never");
+    }
+    if let Some(hook) = hook {
+        println!("shell.hook");
+        println!("  mode: {}", hook.mode);
+        if hook.installed {
+            println!("  installed: yes");
+        } else {
+            println!("  installed: no ({HOOK_MISSING_HINT})");
+        }
     }
     if let Some(rows) = integrity {
         if rows.len() == 1 && rows[0] == "ok" {

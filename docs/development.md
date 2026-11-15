@@ -183,6 +183,15 @@ page.
 - Directory changes are recorded through `LocationChangedAction` on PowerShell 7+ and
   through a wrapped `prompt` function on Windows PowerShell 5.1. Setting the environment
   variable `BD_HOOK=prompt` before loading forces the prompt hook.
+- Anything loaded later can remove the hook: a prompt tool that redefines `prompt`, or a
+  profile that overwrites `LocationChangedAction`. `_bd_hook_installed` checks for this.
+  The prompt hook counts as installed when the current `prompt` calls
+  `_bd_on_location_changed` (checked in its AST, so comments and strings do not count),
+  or when it is the same function the wrapper saw the last time it ran (a prompt that
+  chains to the previous one). When
+  the hook is gone, `bd`, `bd c`, and `bd ls` print a warning, and `bd doctor` passes the
+  hidden `--hook <mode>` and `--hook-missing` options so that `bd-core doctor` reports
+  `shell.hook` (`hook_mode` and `hook_installed` in `--json`).
 - Session keys are the PowerShell process id plus its start time, unless `BD_SESSION_ID`
   is set in the environment before loading.
 - Only file system locations are recorded (not the registry or other providers).

@@ -91,8 +91,16 @@ Invoke-Expression (& bd-core init powershell | Out-String)
 ```
 
 Start a new PowerShell session after editing the profile. None of the packages edit your
-profile on install. If your profile also sets up a custom prompt (oh-my-posh, starship,
-...), put the `bd` line after it.
+profile on install.
+
+> [!IMPORTANT]
+> If your profile also sets up a custom prompt (oh-my-posh, starship, posh-git, or your
+> own `function prompt`), put the `bd` line **after** it, at the end of the profile. On
+> Windows PowerShell 5.1, `bd` records directory changes by wrapping the `prompt`
+> function, so a prompt defined later replaces the wrapper and nothing is recorded. `bd`
+> then prints a warning that names the fix, and `bd doctor` shows `installed: no` under
+> `shell.hook`. PowerShell 7 records through `LocationChangedAction` by default and works
+> in either order, unless you force the prompt hook with `BD_HOOK=prompt`.
 
 Without a package manager, download `bd-core-x86_64-pc-windows-msvc.zip` (or
 `bd-core-aarch64-pc-windows-msvc.zip`) from the GitHub release, extract it to a directory

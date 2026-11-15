@@ -13,6 +13,8 @@ if (-not (Get-Variable -Name BD_LOADED -Scope Global -ErrorAction SilentlyContin
   $global:BD_MAX_BACK = 999
   $global:BD_SUPPRESS_RECORD = $false
   $global:BD_LAST_PWD = $null
+  $global:_bd_prompt_seen = $null
+  $global:_bd_location_action = $null
 
   function global:_bd_default_core_bin {
     $cmd = Get-Command -Name 'bd-core' -CommandType Application -ErrorAction SilentlyContinue |
@@ -138,6 +140,45 @@ if (-not (Get-Variable -Name BD_LOADED -Scope Global -ErrorAction SilentlyContin
     }
   }
 
+  # Reports whether the hook that records directory changes is still in place.
+  # A prompt tool (oh-my-posh, starship, ...) or a 'function prompt' loaded
+  # after this file replaces the wrapped prompt, and recording stops silently.
+  function global:_bd_hook_installed {
+    if ($global:BD_HOOK -eq 'location') {
+      $current = $ExecutionContext.SessionState.InvokeCommand.LocationChangedAction
+      if ($null -eq $current -or $null -eq $global:_bd_location_action) {
+        return $false
+      }
+      return ([Array]::IndexOf($current.GetInvocationList(), $global:_bd_location_action) -ge 0)
+    }
+    $current = $function:prompt
+    if ($null -eq $current) {
+      return $false
+    }
+    # A prompt that chains to the wrapped one still records: the wrapper saw
+    # this exact prompt function the last time it ran.
+    if ([object]::ReferenceEquals($current, $global:_bd_prompt_seen)) {
+      return $true
+    }
+    # Otherwise the prompt must call the wrapper itself (the one bd defines).
+    $calls = $current.Ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+          $node.GetCommandName() -eq '_bd_on_location_changed'
+      }, $true)
+    return ($calls.Count -gt 0)
+  }
+
+  function global:_bd_warn_if_unhooked {
+    if (-not (_bd_hook_installed)) {
+      $what = 'the prompt function'
+      if ($global:BD_HOOK -eq 'location') {
+        $what = 'LocationChangedAction'
+      }
+      Write-Warning "bd: directory changes are not recorded because $what was replaced after bd was loaded. Move the bd line to the end of your PowerShell profile."
+    }
+  }
+
   function global:_bd_fail {
     param([string]$Message)
     Write-Output $Message
@@ -212,6 +253,10 @@ Note:
       if ($count -gt 1) {
         $rest = @($argv[1..($count - 1)])
       }
+      $rest += @('--hook', $global:BD_HOOK)
+      if (-not (_bd_hook_installed)) {
+        $rest += '--hook-missing'
+      }
       _bd_invoke_core doctor @rest
       return
     }
@@ -248,6 +293,7 @@ Note:
 
     if ($arg -ceq 'c' -or $arg -ceq 'cancel') {
       if (-not (_bd_require_core)) { _bd_fail 'bd: bd-core not found'; return }
+      _bd_warn_if_unhooked
       $output = @(_bd_invoke_core cancel --session $global:BD_SESSION_ID)
       if ($global:LASTEXITCODE -ne 0 -or $output.Count -eq 0) {
         return
@@ -265,6 +311,7 @@ Note:
       if ($limit -eq 0) { _bd_fail 'bd: usage: bd ls [N]'; return }
       if ($limit -lt 0) { _bd_fail "bd: max is $($global:BD_MAX_BACK)"; return }
       if (-not (_bd_require_core)) { _bd_fail 'bd: bd-core not found'; return }
+      _bd_warn_if_unhooked
       _bd_invoke_core list --session $global:BD_SESSION_ID --limit $limit
       return
     }
@@ -276,6 +323,7 @@ Note:
     if ($steps -lt 0) { _bd_fail "bd: max is $($global:BD_MAX_BACK)"; return }
 
     if (-not (_bd_require_core)) { _bd_fail 'bd: bd-core not found'; return }
+    _bd_warn_if_unhooked
     $output = @(_bd_invoke_core back --print-path --session $global:BD_SESSION_ID --n $steps)
     if ($global:LASTEXITCODE -ne 0 -or $output.Count -eq 0) {
       return
@@ -301,12 +349,14 @@ Note:
     } else {
       $bdInvokeCommand.LocationChangedAction = $bdAction
     }
+    $global:_bd_location_action = $bdAction
     $global:BD_HOOK = 'location'
     Remove-Variable -Name bdAction, bdPrevious -ErrorAction SilentlyContinue
   } else {
     $global:_bd_original_prompt = $function:prompt
     function global:prompt {
       $bdExitCode = $global:LASTEXITCODE
+      $global:_bd_prompt_seen = $function:prompt
       try { _bd_on_location_changed } catch { $null = $_ }
       $global:LASTEXITCODE = $bdExitCode
       if ($global:_bd_original_prompt) {

@@ -155,12 +155,58 @@ try {
   Assert-True (Test-Path -LiteralPath $dbPath -PathType Leaf) "database not found at $dbPath"
   Assert-True ($doctor.events -ge 4) "expected recorded events, got $($doctor.events)"
 
+  Assert-Equal $doctor.hook_mode $expectedHook 'doctor hook_mode'
+  Assert-Equal $doctor.hook_installed $true 'doctor hook_installed'
+  $warnings = @(bd ls 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+  Assert-Equal $warnings.Count 0 'warnings while the hook is installed'
+
   bd optimize
   Assert-Equal $LASTEXITCODE 0 'bd optimize exit code'
   bd vacuum --yes
   Assert-Equal $LASTEXITCODE 0 'bd vacuum exit code'
   $doctor = (@(bd doctor --json) -join '') | ConvertFrom-Json
   Assert-Equal $doctor.events 0 'events after vacuum'
+
+  # Something loaded after bd can replace the hook (#18). Count only warnings.
+  function Get-BdWarnings {
+    param([scriptblock]$Block)
+    return @(& $Block 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+  }
+
+  if ($global:BD_HOOK -eq 'prompt') {
+    # A prompt that chains to the wrapped one keeps recording: no warning, even
+    # for several bd calls between two prompts.
+    $global:BdSmokeSavedPrompt = $function:prompt
+    function global:prompt { & $global:BdSmokeSavedPrompt }
+    $null = Enter-Dir $b
+    $warnings = @(Get-BdWarnings { bd ls; bd ls; bd doctor })
+    Assert-Equal $warnings.Count 0 'warnings with a prompt that chains to the wrapper'
+    $doctor = (@(bd doctor --json) -join '') | ConvertFrom-Json
+    Assert-Equal $doctor.hook_installed $true 'doctor hook_installed with a chained prompt'
+    Assert-True ($doctor.events -ge 1) 'a chained prompt did not record'
+  }
+  $eventsBefore = ((@(bd doctor --json) -join '') | ConvertFrom-Json).events
+
+  # A prompt tool redefines prompt, or a profile overwrites LocationChangedAction.
+  # The replacement only mentions the wrapper in a comment, which must not count.
+  if ($global:BD_HOOK -eq 'prompt') {
+    Set-Item -Path function:global:prompt -Value ([scriptblock]::Create("# _bd_on_location_changed`n'PS> '"))
+  } else {
+    $ExecutionContext.SessionState.InvokeCommand.LocationChangedAction = $null
+  }
+  # Checked right away, before the next prompt, and again after it.
+  $warnings = @(Get-BdWarnings { bd ls })
+  Assert-Equal $warnings.Count 1 'warning right after the hook was replaced'
+  $null = Enter-Dir $b
+  $null = Enter-Dir $a
+  $warnings = @(Get-BdWarnings { bd ls; bd ls })
+  Assert-Equal $warnings.Count 2 'warnings after the hook was replaced'
+  Assert-True ($warnings[0].Message -match 'Move the bd line to the end') "unexpected warning: $($warnings[0].Message)"
+  $doctor = (@(bd doctor --json) -join '') | ConvertFrom-Json
+  Assert-Equal $doctor.hook_installed $false 'doctor hook_installed after the hook was replaced'
+  Assert-Equal $doctor.events $eventsBefore 'events recorded after the hook was replaced'
+  $doctorText = (@(bd doctor) -join "`n")
+  Assert-True ($doctorText -match 'installed: no') "bd doctor does not report the missing hook: $doctorText"
 
   if ($onWindows) {
     # Without XDG_STATE_HOME the database lives under %LOCALAPPDATA%.

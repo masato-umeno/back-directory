@@ -50,10 +50,26 @@ fn dispatch(command: cli::Commands) -> Result<()> {
             println!("{target}");
             Ok(())
         }
-        cli::Commands::Doctor { integrity, json } => {
+        cli::Commands::Doctor {
+            integrity,
+            json,
+            hook,
+            hook_missing,
+        } => {
             let path = db::default_path()?;
             let conn = db::open(&path)?;
-            doctor::run(&conn, &path, integrity, json, format::current_ts())
+            let hook = hook.map(|mode| doctor::HookStatus {
+                mode,
+                installed: !hook_missing,
+            });
+            doctor::run(
+                &conn,
+                &path,
+                integrity,
+                json,
+                hook.as_ref(),
+                format::current_ts(),
+            )
         }
         cli::Commands::Optimize => {
             let conn = db::open_default()?;
